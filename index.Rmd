@@ -1,0 +1,483 @@
+---
+title: "Multiverse analysis study"
+subtitle: "Sample solution"
+output:
+  # tufte::tufte_html:
+    # df_print: paged
+  html_document:
+    df_print: paged
+---
+
+```{r setup, message=FALSE}
+knitr::opts_chunk$set(message = FALSE)
+if (!require(mverse)) {
+  # Installs mverse if it is missing
+  remotes::install_github("mverseanalysis/mverse")
+  library(mverse)
+}
+if (!require(ggplot2)) {
+  # Installs ggplot2 if it is missing
+  install.packages("ggplot2")
+  library(ggplot2)
+}
+```
+
+```
+This is a sample solution to the multiverse analysis exercise. Depending on the version you received, the tutorial leading to the analysis exercise demonstrated one of the following three approaches to the exercise:  
+
+A. Manual model specification and for loops;  
+B. Programmatic model specification using a matrix and vectorized functions; and  
+C. Using a purpose-built package `mverse`.  
+
+This sample solution will demonstrate all three approaches to complete the full multiverse analysis. For the full tutorials, see the tutorial documents available at https://github.com/orgs/mverse-study/repositories Sample solutions for the Quiz questions are provided using the mverse package (C).
+```
+
+## Introduction
+
+Recall the research question from the tutorial activity.
+
+> Did mortgage providers approve an application differently based on the 
+applicant's sex in Boston in 1990?
+
+To answer the question, you are asked to conduct a multiverse analysis testing
+the following set of hypotheses at 5% significance level, or 95% confidence 
+level.
+
+> - $H_0$: No, they were as likely to approve female applicants as male 
+applicants.
+> - $H_1$: Yes, they were either more likely or less likely to approve female
+applicants than male applicants.
+
+## Data
+
+We will use the same dataset `hdma`.
+
+```{r readdata}
+# the dataset is stored in the file named hdma.csv
+hdma <- read.csv("hdma.csv")
+hdma 
+```
+
+Each row of the dataset represents a mortgage application with the following
+information in the columns:
+
++  `is_approved` is 1 if the application was approved and 0 otherwise.
++  `is_female` is 1 if the applicant was a female and 0 otherwise.
++  `is_black` is 1 if the applicant was a black or Hispanic and 0 if the 
+applicant was non-Hispanic white. The dataset does not contain other races.
++  `is_married` is 1 if the applicant was married and 0 otherwise.
++  `is_housing_expense_ratio_high` is 1 if the bank's calculation of housing
+expense over income exceeds 30% and 0 otherwise.
++  `is_self_employed` is 1 if the applicant was self-employed and 0 otherwise.
++  `is_bad_credit` is 1 if the applicant had one or more public records such as
+bankruptcy, charge offs, and collection actions and 0 otherwise.
++  `payment_income_ratio` is the bank's calculation of total debt payment over
+income in percentages.
++  `loan_to_value_ratio` is the value of the loan amount over the appraisal
+value of the property in percentages.
+
+## Defining the multiverse
+
+Assume that any combination of the extra variables, or covariates, included in 
+the dataset makes a defensible model for answering the research question. In
+the code chunk below, define the multiverse that consists of ALL defensible 
+models for answering the research question using the dataset `hdma`. All models
+must:
+
+1. be a logistic regression model,
+2. set `is_approved` as the response variable, and
+3. set `is_female` as an explanatory variable.
+
+```
+Here, we assume that "any combination" of the covariates is a defensible model to answer the question. There are 7 covariates which leads to 128 combinations.
+```
+
+$$2^7=128$$
+
+```
+Using the first approach (A), we can type all 128 models using R's formula syntax. 
+```
+
+```{r definemv-a, eval=FALSE}
+# define the multiverse
+formulae_a <- c(
+  # no covariate
+  "is_approved  ~ is_female",
+  # a single covariate
+  "is_approved  ~ is_female + is_black",
+  "is_approved  ~ is_female + is_married",
+  "is_approved  ~ is_female + is_housing_expense_ratio_high",
+  "is_approved  ~ is_female + is_self_employed",
+  "is_approved  ~ is_female + is_bad_credit",
+  "is_approved  ~ is_female + payment_income_ratio",
+  "is_approved  ~ is_female + loan_to_value_ratio",
+  # two covariates
+  "is_approved  ~ is_female + is_black + is_married",
+  "is_approved  ~ is_female + is_black + is_housing_expense_ratio_high",
+  # ... omitted ...
+  # seven covariates
+  "is_approved  ~ is_female + is_black + is_married + is_housing_expense_ratio_high + is_self_employed + is_bad_credit + payment_income_ratio + loan_to_value_ratio"
+)
+```
+
+```
+We can avoid typing the formulae 128 times manually by constructing the model formulae programmaticaly. In tutorial version (B), we demonstrated first creating a matrix indicating all possible combinations and then constructing formula by putting together covariates according to the table. We used expand.grid(), apply(), and paste() functions to achieve this.
+```
+
+```{r definemv-b}
+# define the multiverse
+ie_table <- expand.grid(is_black = c(TRUE, FALSE),
+                        is_married = c(TRUE, FALSE),
+                        is_housing_expense_ratio_high = c(TRUE, FALSE),
+                        is_self_employed = c(TRUE, FALSE),
+                        is_bad_credit = c(TRUE, FALSE),
+                        payment_income_ratio = c(TRUE, FALSE),
+                        loan_to_value_ratio = c(TRUE, FALSE))
+base_formula <- "is_approved ~ is_female"
+covariates <- names(ie_table) 
+# MARGIN = 1 indicates that we will apply the FUN along the rows
+formulae_b <- apply(X = ie_table, MARGIN = 1, FUN = function(x) {
+  # x is a row from ie_table evaluated one at a time
+  # covariates[x] picks the covariate values where x is TRUE
+  # paste(c(...), collapse = " + ") connects the elements in c(...) by " + " 
+  #   into a single string
+  paste(c(base_formula, covariates[x]), collapse = " + ")
+})
+```
+
+```
+You can verify that all 128 combinations were constructed using length().
+```
+
+```{r countmv-b}
+n_options <- length(formulae_b)
+n_options
+```
+
+
+```
+Using the last approach (C), we can make use of the purpose-built package
+mverse's functions to define a multiverse.
+```
+
+```{r definemv-c}
+# define the multiverse
+library(mverse)
+formulae_c <- formula_branch(
+  is_approved ~ is_female, 
+  covariates = c("is_black",
+                 "is_married",
+                 "is_housing_expense_ratio_high",
+                 "is_self_employed",
+                 "is_bad_credit",
+                 "payment_income_ratio",
+                 "loan_to_value_ratio")
+  )
+mv <- create_multiverse(hdma) |>
+  add_formula_branch(formulae_c)
+```
+
+```
+You can verify that all 128 combinations were constructed by checking the summary table of the multiverse.
+```
+
+```{r countmv-c}
+nrow(summary(mv))
+```
+
+
+## Fitting the multiverse
+
+In the code chunk below, fit and store the following quantities from each model
+in the multiverse:
+
+1. the coefficient estimate of `is_female`, and
+2. the upper and lower bound of the estimates' 95% confidence intervals.
+
+```
+We can fit the models and extract the coefficient estimates using a for loop. 
+```
+
+```{r fitmv-a, eval=FALSE}
+# fit the multiverse
+results_a <- matrix(nrow = n_options, ncol = 3)
+for (i in 1:n_options) {
+  # formulae[i] extracts ith item of formulae
+  fit <- glm(formulae_a[i], data = hdma, family = binomial)
+  # coefficients() extracts the coefficient estimates 
+  ests <- coefficients(fit)
+  cis <- confint(fit)
+  # extract the values for `is_female`
+  est_is_female <- ests[names(ests) == "is_female"]     # ests is a vector
+  ci_is_female <- cis[row.names(cis) == "is_female", ]  # cis is a table
+  # store the values together in the ith row of results
+  results_a[i, ] <- c(est_is_female, ci_is_female)    
+}
+```
+
+```
+In tutorial version (B), we used R's lapply() function instead of calling a loop.
+```
+
+```{r fitmv-b}
+# fit the multiverse
+results_list <- lapply(formulae_b, function(x) {
+  fit <- glm(x, data = hdma, family = binomial)
+  # coefficients() extracts the coefficient estimates 
+  ests <- coefficients(fit)
+  cis <- confint(fit)
+  # extract the values for `is_female`
+  est_is_female <- ests[names(ests) == "is_female"]     # ests is a vector
+  ci_is_female <- cis[row.names(cis) == "is_female", ]  # cis is a table
+  # return the coefficient estimate and the confidence interval in a vector
+  return(c(est_is_female, ci_is_female))
+})
+```
+
+```
+The output is a list instead of a single table, and it requires another step to put them together in a single table.
+```
+
+```{r summarizemv-b}
+results_b <- do.call(rbind, results_list)
+```
+
+```
+The package mverse provides glm_mverse() to fit the logistic regression models across the multiverse in a single call. The functions are also designed to work with R's pipe operator (|>).
+```
+
+```{r fitmv-c}
+# fit the multiverse
+binom_family <- family_branch(binomial)
+mv <- create_multiverse(hdma) |>
+  add_formula_branch(formulae_c) |>
+  add_family_branch(binom_family) |>
+  glm_mverse()
+```
+
+```
+spec_summary() from the mverse package can then extract the coefficient estiamtes and confidence intervals of interest in a table.
+```
+
+```{r summarizemv-c}
+results_c <- spec_summary(mv, "is_female")
+```
+
+## Exploring the multiverse
+
+In the code chunk below, visualize the estimated coefficients and the associated
+95% confidence intervals. Organize the plot such that:
+
+1. the models, or the universes, are grouped by whether they include both 
+`is_black` and `is_married`, and
+2. the models, or the universes, are ordered by the magnitude of the estimated
+coefficient within each group.
+
+```
+The first two tutorial versions, (A) and (B), introduced the same method using ggplot. You can identify the models that include both covariates using grepl() function. You can visually distinguish the result using facets in ggplot.
+```
+
+
+```{r exploremv-ab, fig.asp=2, fig.width=20}
+# explore the multiverse
+# to zoom in to a plot, click "Show in New Window" button on the top of the plot
+multiverse_table <- as.data.frame(results_b) 
+# Provide meaningful column names.
+colnames(multiverse_table) <- c("Estimate", "LowerCI", "UpperCI")
+# Add the vector `formulae` as the first column to the data frame.
+multiverse_table <- cbind(Model = formulae_b, multiverse_table)
+# order Model based on Estimate
+multiverse_table$Model <- factor(
+  multiverse_table$Model, 
+  # define levels according to the order of `Estimate`
+  levels = multiverse_table$Model[order(multiverse_table$Estimate)]
+)
+multiverse_table["has_married_and_black"] <- ifelse(
+  grepl("is_married", multiverse_table$Model) & 
+    grepl("is_black", multiverse_table$Model),
+  "Includes marital and race indicators", "")
+
+ggplot(multiverse_table, aes(y = Model)) +
+  geom_point(aes(x = Estimate)) +
+  geom_linerange(aes(xmin = LowerCI, xmax = UpperCI)) +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  theme_minimal() +
+  # facet_grid() expects rows and cols wrapped in vars()
+  facet_grid(rows = vars(has_married_and_black), scales = "free_y")
+```
+
+```
+In the case of using mverse, you can make use of the columns that indicate whether each of the covariates was included. The visualization function spec_curve() provides different options to visually distinguish the results - by colour or by order.
+```
+
+```{r exploremv-c, fig.asp=1.5, fig.width=20}
+# explore the multiverse
+# to zoom in to a plot, click "Show in New Window" button on the top of the plot
+results_c["has_married_and_black"] <- (
+  results_c$covariate_is_married_branch == "include_is_married") & (
+    results_c$covariate_is_black_branch == "include_is_black"
+  )
+spec_curve(results_c, 
+           colour_by = "has_married_and_black", 
+           order_by = c("has_married_and_black", "estimate"))
+```
+
+```
+Alternatively, you can make use of ggplot's facets and further customize the plot as the output of spec_curve() is a ggplot as well.
+```
+
+```{r exploremv-c-facet, fig.asp=1.5, fig.width=20}
+spec_curve(results_c) +
+  facet_grid(rows = vars(has_married_and_black), scales = "free_y") +
+  theme(legend.position = "top")
+```
+
+
+## Answers to the quiz
+
+### 1. Consider the analysis with all 7 covariates included. Does the analysis support $H_1$ at 95% confidence level? Select the most appropriate answer.
+
+You can look up the result from the table summarizing the multiverse analysis where all covariates are included. In the summary table from mverse, we can check that each branch for the covariates includes "includes_".
+
+```{r}
+include_all <- (
+  grepl("include_", results_c$covariate_is_married_branch)
+  ) & (
+    grepl("include_", results_c$covariate_is_black_branch)
+    ) & (
+      grepl("include_", results_c$covariate_is_housing_expense_ratio_high_branch)
+    ) & (
+      grepl("include_", results_c$covariate_is_self_employed_branch)
+    ) & (
+      grepl("include_", results_c$covariate_is_bad_credit_branch)
+    ) & (
+      grepl("include_", results_c$covariate_payment_income_ratio_branch)
+    ) & (
+      grepl("include_", results_c$covariate_loan_to_value_ratio_branch)
+    )
+results_c[include_all, ]
+```
+
+We can see that the confidence interval does NOT include 0 and that the estimate is greater than 0. Thus, the correct answer is 
+
+> Yes. Specificaly, the analysis provides statistically significant evidence that the mortgage providers were more likely to approve female applicants.
+
+
+### 2. Consider the analysis with __none__ of the 7 covariates included. Does the analysis support $H_1$ at 95% confidence level? Select the most appropriate answer.
+
+Similar to the above, we can extract the result from the particular model.
+
+```{r}
+include_none <- (
+  grepl("exclude_", results_c$covariate_is_married_branch)
+  ) & (
+    grepl("exclude_", results_c$covariate_is_black_branch)
+    ) & (
+      grepl("exclude_", results_c$covariate_is_housing_expense_ratio_high_branch)
+    ) & (
+      grepl("exclude_", results_c$covariate_is_self_employed_branch)
+    ) & (
+      grepl("exclude_", results_c$covariate_is_bad_credit_branch)
+    ) & (
+      grepl("exclude_", results_c$covariate_payment_income_ratio_branch)
+    ) & (
+      grepl("exclude_", results_c$covariate_loan_to_value_ratio_branch)
+    )
+results_c[include_none, ]
+```
+
+This time, the confidence interval includes 0. Thus, the correct answer is 
+
+> The analysis does not provide strong evidence that the mortgage providers approved female applicants any differently.
+
+### 3. How many diofferent models are included in the multiverse?
+
+There are 7 covariates which you can either include or exclude. In other words, there are 2 possible options for each of the 7 decision points.
+
+$$2^7=128$$
+
+You can also see that the multiverse analysis result includes 128 estimates.
+
+```{r}
+nrow(results_c)
+```
+
+> 128
+
+### 4. Which of the models included in the multiveres resulted in the largest coefficient estimator for `is_female`?
+
+You can refer to the last plot. The largest estimate is plotted on the right end of the plot. Looking at the table below, we can see that the corresponding model included covariates is_married, is_housing_expense_ratio_high, and is_black. Alternatively, you can extract the result from the `results_c` table.
+
+
+```{r}
+results_c[
+  results_c$estimate == max(results_c$estimate), # extract maximum coefficient
+  grepl("^covariate_.*_branch$", names(results_c)) # match column names that begin with "covariate_" and end with "_branch"
+  ]
+```
+
+
+Thus, the correct answer is
+
+> `is_approved ~ is_female + is_black + is_married + is_housing_expense_ratio_high`
+
+### 5. How many of the individual analyses in the multiverse support the $H_1$ at 95% confidence level?
+
+You can refer to the last plot. The significant results are indicated by green color. There 32 of them. Alternatively, you can extract the result from the `results_c` table where the confidence intervals don't include 0. One way to achieve this is to check whether the lower and upper bounds of each confidence interval have the same sign.
+
+```{r}
+# the product will be positive if they have the same sign
+significant_results <- results_c$conf.low * results_c$conf.high > 0 
+sum(significant_results) # count the number
+```
+
+Thus, the correct answer is
+
+> 32
+
+### 6. Consider the analyses using models that include both `is_black` and `is_married` in the multiverse, How many of these support $H_1$ at 95% confidence level?
+
+You can refer to the last plot. The facets distinguish those that include both `is_black` and `is_married` from others, and indicate all 32 of them are significant at 95% confidence level by colour. 
+
+Thus, the correct answer is
+
+> 32
+
+### 7. Based on the multiverse analysis results, what is a reasonable conclusion in the context of the research question? Write your conclusion in a few sentences.
+
+From the multiverse analysis, it is clear that including both marital status and race of the applicants in the model influences the outcome of the analysis. Only when they are included in the model, we arrive at the conclusion that female applicants were more likely to be approved for mortgage. Otherwise, we do not find sufficient evidence that there was any difference in mortgage application approvals between female and male applicants. While the multiverse analysis does not tell us whether it is correct to include the demographic covariates, it tells us that the analysis result is sensitive to inclusion of the covariates. A reasonable conclusion after presenting the multiverse analysis result would acknowledge this sensitivity. As an example, a concluding paragraph may be written as below.
+
+> From the multiverse analysis, we may conclude that female applicants were more likely to be approved for mortgage based on the assumption that marital status and race were both contributing factors to the approval decision. However, we note that the conclusion holds only when we make the assumption about the two demographic factors. Based on existing literature (or further data analysis), we believe they were contributing factors to mortgage approvals and thus, we conclude that an applicant's sex was also a contributing factor.
+
+### 8. Suppose you consult with morgage experts and they advise that mortgage providers consider a metric, say `key_ratio`, that combines `payment_income_ratio` and `loan_to_value_ratio` rather than considering the two ratios individually. You decide to conduct the multiverse analysis again with `key_ratio` instead of `payment_income_ratio` and `loan_to_value_ratio`. How many different models are included in this new multiverse?
+
+Combining any 2 covariates into 1 reduced the number of covariates to 6. There are now $2^6=64$ possible combinations. Alternatively, you can try defining the multiverse in R and check the number of models created. 
+
+```{r}
+formulae_new <- formula_branch(
+  is_approved ~ is_female, 
+  covariates = c("is_black",
+                 "is_married",
+                 "is_housing_expense_ratio_high",
+                 "is_self_employed",
+                 "is_bad_credit",
+                 # note that you don't need to define the variable 
+                 # until you fit the models
+                 "key_ratio") 
+  )
+mv <- create_multiverse(hdma) |>
+  add_formula_branch(formulae_new)
+nrow(summary(mv))
+```
+
+Thus, the correct answer is
+
+> 64
+
+### 9. Which of the following statements do you agree the most regarding the analysis?
+
+The statistical results that are reported in a published paper are usually one of many reasonable analyses arising from the iterative process. A multiverse analysis aims to increase transparency by performing multiple analyses on a given dataset based on a set of defensible analysis procedures. In this exercise, we demonstrated that the answer to the research question depended on the decision to include or not include the covariates on the mortgage applicant's marital status and race.
+
+
+> There may exist more than one model that describes the relationship of interest in a reasonable manner. While it is desirable to identify the most suitable model(s), considering a set of reasonable models can help form a robust answer to the research question.
+
